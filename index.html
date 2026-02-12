@@ -57,23 +57,24 @@ db.ref("rooms").on("value", function(snapshot) {
   }
 
   for (let roomKey in data) {
-    const call = data[roomKey];
-    const token = call.Token || "-";
-    const room = call.Room || roomKey;
-    let highlight = "";
+  const call = data[roomKey];
 
-    if (!lastData[roomKey] || lastData[roomKey] !== token) {
-      highlight = "highlight"; // you can add CSS for highlight
-      lastData[roomKey] = token;
-    }
+  const token = call.Token;
+  const room = call.Room || roomKey;
 
-    roomsDiv.innerHTML += `
-      <div class="room ${highlight}">
-        <div class="room-number">Room ${room}</div>
-        <div class="token">Token ${token}</div>
-      </div>
-    `;
+  // ❌ If no token or empty → skip this room
+  if (!token || token === "-" || token === "") {
+    continue; // skip showing this room
   }
+
+  roomsDiv.innerHTML += `
+    <div class="room">
+      <div class="room-number">Room ${room}</div>
+      <div class="token">Token ${token}</div>
+    </div>
+  `;
+}
+
 });
 </script>
 
