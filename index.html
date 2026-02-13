@@ -1,81 +1,186 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>Hospital Queue Display</title>
+  <meta charset="UTF-8" />
+  <title>Gaafaru Health Center Queue Display</title>
   <style>
     body {
       font-family: Arial, sans-serif;
-      background: #1f5c54;
-      color: white;
-      text-align: center;
+      background:#1f5c54;
+      color:#fff;
+      text-align:center;
+      margin:0;
+      padding:20px;
     }
+
+    h1 { margin: 10px 0 30px; }
+
+    #rooms {
+      display:flex;
+      flex-wrap:wrap;
+      justify-content:center;
+      gap:20px;
+    }
+
+    /* ✅ Room box is light green */
     .room {
-      margin: 20px;
-      padding: 20px;
-      border: 2px solid white;
-      border-radius: 10px;
-      display: inline-block;
-      min-width: 150px;
+      min-width:260px;
+      padding:25px;
+      border-radius:16px;
+      box-shadow:0 6px 18px rgba(0,0,0,.35);
+      background:#7CFC98; /* light green */
+      color:#003b1a;
+      animation: fadeIn 0.4s ease-in-out;
     }
-    .token {
-      font-size: 50px;
-      font-weight: bold;
-      margin-top: 10px;
-    }
+
     .room-number {
-      font-size: 30px;
-      margin-top: 5px;
+      font-size:28px;
+      margin-bottom:12px;
+      font-weight:700;
+    }
+
+    .token {
+      font-size:55px;
+      font-weight:900;
+      color:#ffffff; /* normal token color */
+      text-shadow: 0 2px 6px rgba(0,0,0,.35);
+    }
+
+    /* ✅ Blink red animation */
+    .blink-red {
+      color: #ff0000 !important;
+      animation: blinkRed 0.6s steps(2, end) infinite;
+    }
+
+    @keyframes blinkRed {
+      0%   { opacity: 1; }
+      50%  { opacity: 0; }
+      100% { opacity: 1; }
+    }
+
+    .no-data {
+      font-size:28px;
+      margin-top:60px;
+      opacity:.9;
+      color:#fff;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
 <body>
-  <h1>Gaafaru Health Center Current Queue Status</h1>
-  <div id="rooms"></div>
+
+<h1>Gaafaru Health Center Current Queue Status</h1>
+<div id="rooms"></div>
 
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 
 <script>
-var firebaseConfig = {
-  databaseURL: "https://hinnavaru-queue-default-rtdb.asia-southeast1.firebasedatabase.app"
-};
+  var firebaseConfig = {
+    databaseURL: "https://hinnavaru-queue-default-rtdb.asia-southeast1.firebasedatabase.app"
+  };
+  firebase.initializeApp(firebaseConfig);
+  var db = firebase.database();
 
-firebase.initializeApp(firebaseConfig);
-var db = firebase.database();
+  const roomsDiv = document.getElementById("rooms");
 
-const roomsDiv = document.getElementById("rooms");
-let lastData = {};
+  // Hide room if no updates for this time
+  const MAX_AGE_SECONDS = 180;
 
-db.ref("rooms").on("value", function(snapshot) {
-  const data = snapshot.val();
-  roomsDiv.innerHTML = "";
+  // Blink duration (5 seconds)
+  const BLINK_MS = 5000;
 
-  if (!data) {
-    roomsDiv.innerHTML = "<p>No current tokens</p>";
-    return;
+  // Keep last token per room to detect changes
+  const lastTokenByRoom = {};
+  // Keep timeout handles so we can stop blinking cleanly
+  const blinkTimeoutByRoom = {};
+
+  function isFresh(isoTime) {
+    if (!isoTime) return false;
+    const t = Date.parse(isoTime);
+    if (isNaN(t)) return false;
+    const ageSec = (Date.now() - t) / 1000;
+    return ageSec <= MAX_AGE_SECONDS;
   }
 
-  for (let roomKey in data) {
-  const call = data[roomKey];
+  function render(data) {
+    roomsDiv.innerHTML = "";
 
-  const token = call.Token;
-  const room = call.Room || roomKey;
+    if (!data) {
+      roomsDiv.innerHTML = "<div class='no-data'>No Active Calls</div>";
+      return;
+    }
 
-  // ❌ If no token or empty → skip this room
-  if (!token || token === "-" || token === "") {
-    continue; // skip showing this room
+    let visible = 0;
+    const keys = Object.keys(data).sort((a,b)=>parseInt(a)-parseInt(b));
+
+    keys.forEach(roomKey => {
+      const call = data[roomKey] || {};
+      const room = (call.Room || roomKey).toString().replace(/Room/gi,'').trim();
+      const token = (call.Token ?? "").toString().trim();
+      const lastUpdated = call.LastUpdatedUtc || call.CalledTimeUtc || "";
+
+      // Show only if token exists and recent
+      if (token !== "" && token !== "0" && token !== "-" && isFresh(lastUpdated)) {
+        visible++;
+
+        // Detect token change => start blink
+        let shouldBlink = false;
+        if (lastTokenByRoom[roomKey] !== undefined && lastTokenByRoom[roomKey] !== token) {
+          shouldBlink = true;
+        }
+        // Save latest token
+        lastTokenByRoom[roomKey] = token;
+
+        const tokenId = `token-${roomKey}`;
+
+        roomsDiv.innerHTML += `
+          <div class="room">
+            <div class="room-number">Room ${room}</div>
+            <div id="${tokenId}" class="token">${token}</div>
+          </div>
+        `;
+
+        // Apply blinking after the element exists in DOM
+        setTimeout(() => {
+          const el = document.getElementById(tokenId);
+          if (!el) return;
+
+          if (shouldBlink) {
+            // Clear old timeout if exists
+            if (blinkTimeoutByRoom[roomKey]) {
+              clearTimeout(blinkTimeoutByRoom[roomKey]);
+              blinkTimeoutByRoom[roomKey] = null;
+            }
+
+            el.classList.add("blink-red");
+
+            // Stop blinking after 5 seconds
+            blinkTimeoutByRoom[roomKey] = setTimeout(() => {
+              el.classList.remove("blink-red");
+              blinkTimeoutByRoom[roomKey] = null;
+            }, BLINK_MS);
+          }
+        }, 0);
+      }
+    });
+
+    if (visible === 0) {
+      roomsDiv.innerHTML = "<div class='no-data'>No Active Calls</div>";
+    }
   }
 
-  roomsDiv.innerHTML += `
-    <div class="room">
-      <div class="room-number">Room ${room}</div>
-      <div class="token">Token ${token}</div>
-    </div>
-  `;
-}
+  // Real-time updates
+  db.ref("rooms").on("value", snap => render(snap.val()));
 
-});
+  // Re-check every 5 sec so expiry hides old rooms
+  setInterval(() => {
+    db.ref("rooms").once("value").then(snap => render(snap.val()));
+  }, 5000);
 </script>
 
 </body>
